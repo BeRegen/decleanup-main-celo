@@ -1,0 +1,54 @@
+{
+  "name": "DeCleanup Impact Product #1",
+  "description": "Dynamic Impact Product (dIP) representing environmental cleanup contributions on the DeCleanup Network",
+  "image": "ipfs://<CID>/1.png",
+  "external_url": "https://decleanup.network/dip/1",
+  "animation_url": "ipfs://<CID>/1.mp4",
+  
+  "attributes": [
+    {
+      "trait_type": "Type",
+      "value": "DeCleanup Impact Product (dIP)"
+    },
+    {
+      "trait_type": "Impact",
+      "value": "Environmental"
+    },
+    {
+      "trait_type": "Category",
+      "value": "Tokenized Cleanups"
+    },
+    {
+      "trait_type": "Level",
+      "value": "Newbie",
+      "display_type": "string"
+    },
+    {
+      "trait_type": "Impact Value",
+      "value": 1,
+      "display_type": "number",
+      "max_value": 100
+    },
+    {
+      "trait_type": "Total Cleanups",
+      "value": 5,
+      "display_type": "number"
+    },
+    {
+      "trait_type": "Last Cleanup Date",
+      "value": 1710892800,
+      "display_type": "date"
+    }
+  ],
+  
+  "properties": {
+    "level_thresholds": {
+      "Newbie": 1,
+      "Pro": 10,
+      "Hero": 50,
+      "Guardian": 100
+    },
+    "created_at": "2024-03-20T12:00:00Z",
+    "last_updated": "2024-03-20T12:00:00Z"
+  }
+} 

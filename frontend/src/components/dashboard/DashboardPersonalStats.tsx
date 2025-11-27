@@ -1,0 +1,179 @@
+'use client'
+
+import { useState } from 'react'
+import { TrendingUp, Flame, Users, FileText, Info } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+
+interface PersonalStatsProps {
+    dcuBalance: number
+    cleanupsDone: number
+    cleanupsDCU: number
+    referrals: number
+    referralsDCU: number
+    streakWeeks: number
+    streakDCU: number
+    enhancedReportsDCU: number
+    hasActiveStreak: boolean
+}
+
+export function DashboardPersonalStats({
+    dcuBalance,
+    cleanupsDone,
+    cleanupsDCU,
+    referrals,
+    referralsDCU,
+    streakWeeks,
+    streakDCU,
+    enhancedReportsDCU,
+    hasActiveStreak,
+}: PersonalStatsProps) {
+    const [showEarnModal, setShowEarnModal] = useState(false)
+
+    return (
+        <div className="rounded-xl border-2 border-brand-green/30 bg-gradient-to-b from-brand-green/10 to-black p-3 flex flex-col h-full min-h-0 overflow-y-auto">
+            <h2 className="mb-3 border-b border-brand-green/30 pb-2 font-bebas text-2xl tracking-wider text-brand-green flex-shrink-0">
+                PERSONAL STATS
+            </h2>
+
+            <div className="space-y-2.5 flex-1 min-h-0 overflow-y-auto">
+                {/* Total cDCU */}
+                <div className="rounded-lg border border-brand-green/20 bg-black/50 p-2.5">
+                    <div className="mb-2 flex items-center justify-between">
+                        <span className="font-bebas text-sm tracking-wide text-gray-400">TOTAL cDCU</span>
+                        <TrendingUp className="h-4 w-4 text-brand-green" />
+                    </div>
+                    <p className="font-bebas text-3xl text-brand-green">{dcuBalance.toFixed(0)}</p>
+                </div>
+
+                {/* Streak Information */}
+                <div className="rounded-lg border border-brand-green/20 bg-black/50 p-2.5">
+                    <div className="mb-1 flex items-center justify-between">
+                        <span className="font-bebas text-sm tracking-wide text-gray-400">STREAK</span>
+                        <Flame className={`h-4 w-4 ${hasActiveStreak ? 'text-brand-yellow' : 'text-gray-500'}`} />
+                    </div>
+                    <p className="font-bebas text-2xl text-white">{streakWeeks} {streakWeeks === 1 ? 'Week' : 'Weeks'}</p>
+                    {hasActiveStreak && (
+                        <p className="mt-1 text-xs text-brand-yellow">Active - Keep it up!</p>
+                    )}
+                </div>
+
+                {/* Breakdown */}
+                <div className="w-full max-w-sm space-y-1 rounded-lg border border-brand-green/20 bg-black/50 p-2">
+                    <div className="flex items-center justify-between">
+                        <span className="flex items-center gap-1 text-xs text-gray-400">
+                            <TrendingUp className="h-3 w-3 text-brand-green" />
+                            Cleanups Done
+                        </span>
+                        <span className="font-bebas text-base text-brand-green">{cleanupsDCU} cDCU</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                        <span className="flex items-center gap-1 text-xs text-gray-400">
+                            <Users className="h-3 w-3 text-brand-green" />
+                            Referrals ({referrals})
+                        </span>
+                        <span className="font-bebas text-base text-brand-green">{referralsDCU} cDCU</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                        <span className="flex items-center gap-1 text-xs text-gray-400">
+                            <Flame className="h-3 w-3 text-brand-yellow" />
+                            Streak Bonus
+                        </span>
+                        <span className="font-bebas text-base text-brand-green">{streakDCU} cDCU</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                        <span className="flex items-center gap-1 text-xs text-gray-400">
+                            <FileText className="h-3 w-3 text-brand-green" />
+                            Enhanced Reports
+                        </span>
+                        <span className="font-bebas text-base text-brand-green">{enhancedReportsDCU} cDCU</span>
+                    </div>
+                </div>
+
+                {/* Learn More Button */}
+                <Button
+                    onClick={() => setShowEarnModal(true)}
+                    variant="outline"
+                    className="w-full border-brand-green/30 font-bebas tracking-wider text-brand-green hover:bg-brand-green/10"
+                >
+                    <Info className="mr-2 h-4 w-4" />
+                    Learn how to earn more cDCU
+                </Button>
+            </div>
+
+            {/* Earn More Modal */}
+            {showEarnModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4" onClick={() => setShowEarnModal(false)}>
+                    <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl border-2 border-brand-green/30 bg-black p-6" onClick={(e) => e.stopPropagation()}>
+                        <h3 className="mb-6 font-bebas text-3xl tracking-wider text-brand-green">
+                            HOW TO EARN MORE cDCU
+                        </h3>
+
+                        <div className="space-y-4">
+                            {/* 1. Impact Product Claims */}
+                            <div className="rounded-lg border border-brand-green/20 bg-brand-green/5 p-4">
+                                <div className="mb-2 flex items-center gap-2">
+                                    <span className="flex h-8 w-8 items-center justify-center rounded-full bg-brand-green font-bebas text-lg text-black">1</span>
+                                    <h4 className="font-bebas text-xl tracking-wide text-brand-green">Impact Product Claims</h4>
+                                </div>
+                                <p className="text-sm text-gray-300">
+                                    Earn <span className="font-bold text-brand-green">10 cDCU per level</span> by submitting before-and-after cleanup photos, waiting for verification, and claiming your level upgrade. Currently 10 levels available, with more to come.
+                                </p>
+                            </div>
+
+                            {/* 2. Referrals */}
+                            <div className="rounded-lg border border-brand-green/20 bg-brand-green/5 p-4">
+                                <div className="mb-2 flex items-center gap-2">
+                                    <span className="flex h-8 w-8 items-center justify-center rounded-full bg-brand-green font-bebas text-lg text-black">2</span>
+                                    <h4 className="font-bebas text-xl tracking-wide text-brand-green">Referrals</h4>
+                                </div>
+                                <p className="text-sm text-gray-300">
+                                    Earn <span className="font-bold text-brand-green">3 cDCU</span> for each user who joins via your link, submits cleanup photos, gets it verified, and claims an Impact Product.
+                                </p>
+                            </div>
+
+                            {/* 3. Streaks */}
+                            <div className="rounded-lg border border-brand-green/20 bg-brand-green/5 p-4">
+                                <div className="mb-2 flex items-center gap-2">
+                                    <span className="flex h-8 w-8 items-center justify-center rounded-full bg-brand-green font-bebas text-lg text-black">3</span>
+                                    <h4 className="font-bebas text-xl tracking-wide text-brand-green">Streaks</h4>
+                                </div>
+                                <p className="text-sm text-gray-300">
+                                    Earn <span className="font-bold text-brand-green">3 cDCU per level</span> if you submit cleanups at least once per week to maintain your streak.
+                                </p>
+                            </div>
+
+                            {/* 4. Enhanced Impact Report */}
+                            <div className="rounded-lg border border-brand-green/20 bg-brand-green/5 p-4">
+                                <div className="mb-2 flex items-center gap-2">
+                                    <span className="flex h-8 w-8 items-center justify-center rounded-full bg-brand-green font-bebas text-lg text-black">4</span>
+                                    <h4 className="font-bebas text-xl tracking-wide text-brand-green">Enhanced Impact Report</h4>
+                                </div>
+                                <p className="text-sm text-gray-300">
+                                    Earn <span className="font-bold text-brand-green">5 cDCU</span> if you submit the optional form after each cleanup - used to generate your onchain impact certificate Hypercert (after 10 cleanups).
+                                </p>
+                            </div>
+
+                            {/* 5. Become Verifier */}
+                            <div className="rounded-lg border border-brand-green/20 bg-brand-green/5 p-4">
+                                <div className="mb-2 flex items-center gap-2">
+                                    <span className="flex h-8 w-8 items-center justify-center rounded-full bg-brand-green font-bebas text-lg text-black">5</span>
+                                    <h4 className="font-bebas text-xl tracking-wide text-brand-green">Become Verifier</h4>
+                                </div>
+                                <p className="text-sm text-gray-300">
+                                    Stake <span className="font-bold text-brand-yellow">100 cDCU</span> to get access to the verifier cabinet and earn <span className="font-bold text-brand-green">1 cDCU per verified submission</span>.
+                                </p>
+                            </div>
+                        </div>
+
+                        <Button
+                            onClick={() => setShowEarnModal(false)}
+                            className="mt-6 w-full bg-brand-green font-bebas text-lg tracking-wider text-black hover:bg-brand-green/90"
+                        >
+                            GOT IT!
+                        </Button>
+                    </div>
+                </div>
+            )}
+        </div>
+    )
+}

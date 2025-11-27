@@ -136,3 +136,14 @@ dist
 # Vite logs files
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+
+# Workspace-specific ignores
+contracts/node_modules/
+contracts/artifacts/
+contracts/cache/
+contracts/typechain-types/
+contracts/.env
+frontend/node_modules/
+frontend/.next/
+frontend/.turbo/
+frontend/coverage/

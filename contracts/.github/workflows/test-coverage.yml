@@ -1,0 +1,174 @@
+name: Test and Coverage
+
+on:
+  pull_request:
+    branches: [ master ]
+  push:
+    branches: [ master ]
+
+# Permissions are minimal since we're not commenting on PRs
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test and Coverage
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps
+
+      - name: Install bc
+        run: sudo apt-get install -y bc
+
+      - name: Compile contracts
+        run: npm run compile
+
+      - name: Run tests
+        run: npm test
+
+      - name: Run coverage
+        run: SOLIDITY_COVERAGE=true npm run test:coverage
+
+      - name: Check coverage thresholds
+        id: coverage
+        run: |
+          # Create a script to calculate coverage from coverage.json
+          cat > calculate-coverage.js << 'EOF'
+          const fs = require('fs');
+          
+          // Read the coverage data
+          const coverageData = JSON.parse(fs.readFileSync('./coverage.json'));
+          
+          // Initialize counters
+          let totalStatements = 0;
+          let coveredStatements = 0;
+          let totalBranches = 0;
+          let coveredBranches = 0;
+          let totalFunctions = 0;
+          let coveredFunctions = 0;
+          
+          // Process each contract
+          Object.keys(coverageData).forEach(contractPath => {
+            const contract = coverageData[contractPath];
+            
+            // Count statements
+            if (contract.s && contract.statementMap) {
+              const statementCount = Object.keys(contract.statementMap).length;
+              totalStatements += statementCount;
+              
+              // Count covered statements (those with count > 0)
+              coveredStatements += Object.values(contract.s).filter(count => count > 0).length;
+            }
+            
+            // Count branches
+            if (contract.b && contract.branchMap) {
+              Object.keys(contract.branchMap).forEach(branchId => {
+                const branchData = contract.b[branchId];
+                if (Array.isArray(branchData)) {
+                  totalBranches += branchData.length;
+                  coveredBranches += branchData.filter(count => count > 0).length;
+                }
+              });
+            }
+            
+            // Count functions
+            if (contract.f && contract.fnMap) {
+              const functionCount = Object.keys(contract.fnMap).length;
+              totalFunctions += functionCount;
+              
+              // Count covered functions (those with count > 0)
+              coveredFunctions += Object.values(contract.f).filter(count => count > 0).length;
+            }
+          });
+          
+          // Calculate percentages
+          const statementsPct = totalStatements > 0 ? (coveredStatements / totalStatements) * 100 : 0;
+          const branchesPct = totalBranches > 0 ? (coveredBranches / totalBranches) * 100 : 0;
+          const functionsPct = totalFunctions > 0 ? (coveredFunctions / totalFunctions) * 100 : 0;
+          
+          // We'll use statement coverage as line coverage since they're typically equivalent in Solidity
+          const linesPct = statementsPct;
+          
+          // Output the results
+          console.log(JSON.stringify({
+            statements: {
+              total: totalStatements,
+              covered: coveredStatements,
+              pct: Math.round(statementsPct * 100) / 100
+            },
+            branches: {
+              total: totalBranches,
+              covered: coveredBranches,
+              pct: Math.round(branchesPct * 100) / 100
+            },
+            functions: {
+              total: totalFunctions,
+              covered: coveredFunctions,
+              pct: Math.round(functionsPct * 100) / 100
+            },
+            lines: {
+              total: totalStatements,
+              covered: coveredStatements,
+              pct: Math.round(linesPct * 100) / 100
+            }
+          }));
+          EOF
+          
+          # Run the script to calculate coverage
+          COVERAGE_RESULT=$(node calculate-coverage.js)
+          
+          # Extract coverage percentages
+          STATEMENTS=$(node -e "console.log(JSON.parse('$COVERAGE_RESULT').statements.pct)")
+          BRANCHES=$(node -e "console.log(JSON.parse('$COVERAGE_RESULT').branches.pct)")
+          FUNCTIONS=$(node -e "console.log(JSON.parse('$COVERAGE_RESULT').functions.pct)")
+          LINES=$(node -e "console.log(JSON.parse('$COVERAGE_RESULT').lines.pct)")
+          
+          # Define minimum thresholds
+          MIN_STATEMENTS=85
+          MIN_BRANCHES=60
+          MIN_FUNCTIONS=80
+          MIN_LINES=85
+          
+          # Check if coverage meets thresholds
+          if (( $(node -e "console.log($STATEMENTS < $MIN_STATEMENTS ? 1 : 0)") )); then
+            echo "Statement coverage ($STATEMENTS%) is below the minimum threshold ($MIN_STATEMENTS%)"
+            exit 1
+          fi
+          
+          if (( $(node -e "console.log($BRANCHES < $MIN_BRANCHES ? 1 : 0)") )); then
+            echo "Branch coverage ($BRANCHES%) is below the minimum threshold ($MIN_BRANCHES%)"
+            exit 1
+          fi
+          
+          if (( $(node -e "console.log($FUNCTIONS < $MIN_FUNCTIONS ? 1 : 0)") )); then
+            echo "Function coverage ($FUNCTIONS%) is below the minimum threshold ($MIN_FUNCTIONS%)"
+            exit 1
+          fi
+          
+          if (( $(node -e "console.log($LINES < $MIN_LINES ? 1 : 0)") )); then
+            echo "Line coverage ($LINES%) is below the minimum threshold ($MIN_LINES%)"
+            exit 1
+          fi
+          
+          # Calculate overall coverage for summary
+          OVERALL=$(node -e "console.log(Math.round(($STATEMENTS + $BRANCHES + $FUNCTIONS + $LINES) / 4))")
+          
+          # Output coverage summary to the log
+          echo "Coverage Summary:"
+          echo "Statements: $STATEMENTS% (threshold: $MIN_STATEMENTS%)"
+          echo "Branches: $BRANCHES% (threshold: $MIN_BRANCHES%)"
+          echo "Functions: $FUNCTIONS% (threshold: $MIN_FUNCTIONS%)"
+          echo "Lines: $LINES% (threshold: $MIN_LINES%)"
+          echo "Overall: $OVERALL%"
+          echo "All coverage thresholds passed!" 

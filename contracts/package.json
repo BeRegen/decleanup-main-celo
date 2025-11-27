@@ -1,0 +1,46 @@
+{
+  "name": "hardhat-project",
+  "scripts": {
+    "compile": "hardhat compile",
+    "test": "hardhat test",
+    "test:coverage": "SOLIDITY_COVERAGE=true hardhat coverage",
+    "deploy:arbitrum": "hardhat run scripts/deploy-arbitrum.ts --network arbitrum",
+    "deploy:arbitrum-testnet": "hardhat run scripts/deploy-arbitrum.ts --network arbitrumSepolia",
+    "verify:arbitrum": "hardhat verify --network arbitrum",
+    "verify:arbitrum-testnet": "hardhat verify --network arbitrumSepolia",
+    "verify:all-arbitrum": "hardhat run scripts/verify-arbitrum.ts --network arbitrum",
+    "verify:all-arbitrum-testnet": "hardhat run scripts/verify-arbitrum.ts --network arbitrumSepolia",
+    "gas:compare": "hardhat run scripts/gas-comparison.ts",
+    "typechain": "hardhat typechain",
+    "clean": "hardhat clean",
+    "generate-package": "ts-node scripts/generate-package.ts",
+    "generate-package:arbitrum": "ts-node scripts/generate-package.ts arbitrum",
+    "generate-package:arbitrum-sepolia": "ts-node scripts/generate-package.ts arbitrum-sepolia"
+  },
+  "dependencies": {
+    "@openzeppelin/contracts": "^5.2.0",
+    "ethers": "^5.7.2"
+  },
+  "devDependencies": {
+    "@nomiclabs/hardhat-ethers": "^2.2.3",
+    "@nomicfoundation/hardhat-ignition": "^0.15.10",
+    "@nomicfoundation/hardhat-ignition-viem": "^0.15.11",
+    "@nomicfoundation/hardhat-network-helpers": "^1.0.12",
+    "@nomicfoundation/hardhat-toolbox-viem": "^3.0.0",
+    "@nomicfoundation/hardhat-verify": "^2.0.13",
+    "@nomicfoundation/hardhat-viem": "^2.0.6",
+    "@typechain/ethers-v5": "^11.0.0",
+    "@typechain/hardhat": "^7.0.0",
+    "@types/mocha": "^10.0.10",
+    "chai": "^4.5.0",
+    "dotenv": "^16.4.7",
+    "hardhat": "^2.22.18",
+    "hardhat-gas-reporter": "^1.0.10",
+    "solidity-coverage": "^0.8.15",
+    "ts-node": "^10.9.2",
+    "typechain": "^8.2.0",
+    "typescript": "^5.4.2",
+    "viem": "^2.27.3"
+  },
+  "version": "1.0.4"
+}
