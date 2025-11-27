@@ -54,20 +54,6 @@ For contracts, create `contracts/.env` with your RPC + explorer keys if you plan
 | `docs/recyclables-module.md` | cRECY reserve requirements, Submission hook, reserve sync checklist |
 | `docs/deployment-plan.md` | One-pager for final deployment steps and env requirements |
 
-> Note: Legacy Farcaster/Base docs were removed; this repo only tracks the Celo deployment path.
-
-## Initial commit message (suggested)
-
-```
-chore: bootstrap decleanup-main-celo
-
-- add tightened dashboard/profile layout and verifier entry points
-- wire hypercert minting flow (impact data aggregation, IPFS assets, reward claim)
-- integrate recyclables + impact-form steps into cleanup UX
-- document system architecture, deployment plan, and hypercert pipeline
-- prep contracts + scripts for Celo deployment (treasury, roles, hypercert rewards)
-```
-
 Happy cleaning 🌍
 
 Full V2 of DeCleanup Rewards app on Celo, including expanded impact reporting, Hypercerts, leaderboard, and recyclables submission.
