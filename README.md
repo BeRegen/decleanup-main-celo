@@ -70,3 +70,4 @@ chore: bootstrap decleanup-main-celo
 
 Happy cleaning 🌍
 
+Full V2 of DeCleanup Rewards app on Celo, including expanded impact reporting, Hypercerts, leaderboard, and recyclables submission.
