@@ -13,6 +13,16 @@ interface RecyclablesReward {
     function rewardRecyclables(address user, uint256 submissionId) external;
 }
 
+// Interface for ImpactProductNFT contract
+interface IImpactProductNFT {
+    function verifyPOI(address user) external;
+    function safeMint() external;
+    function upgradeNFT(uint256 tokenId) external;
+    function getUserNFTData(address user) external view returns (uint256 tokenId, uint256 impact, uint256 level);
+    function _userHasMinted(address user) external view returns (bool);
+    function verifiedPOI(address user) external view returns (bool);
+}
+
 /**
  * @title Submission
  * @dev Contract for handling form submissions from the DeCleanup dapp
@@ -52,7 +62,7 @@ contract Submission is Ownable, ReentrancyGuard, AccessControl {
         uint256 processedTimestamp;
         bool rewarded;         // Whether a reward has been issued for this submission
         uint256 feePaid;       // Amount of fee paid for this submission
-        bool feeRefunded;      // Whether fee has been refunded (for rejected submissions)
+        bool feeRefunded;      // Deprecated - fees are kept by treasury
         bool hasImpactForm;    // Whether impact form was submitted
         bool hasRecyclables;   // Whether recyclables proof was submitted
         string recyclablesPhotoHash; // IPFS hash for recyclables photo
@@ -67,6 +77,9 @@ contract Submission is Ownable, ReentrancyGuard, AccessControl {
     
     // Reference to the DCURewardManager contract
     DCURewardManager public rewardManager;
+    
+    // Reference to the ImpactProductNFT contract
+    IImpactProductNFT public impactProductNFT;
     
     // Reference to the RecyclablesReward contract (optional, can be address(0))
     address public recyclablesRewardContract;
@@ -87,7 +100,7 @@ contract Submission is Ownable, ReentrancyGuard, AccessControl {
     uint256 public defaultRewardAmount;
     
     // Submission fee configuration
-    uint256 public submissionFee = 0.02 ether; // ~2 cents in CELO (adjust based on price)
+    uint256 public submissionFee = 0.01 ether; // ~2 cents USD in CELO (approximately 0.01 CELO)
     bool public feeEnabled = true;
     address payable public treasury = payable(0x520E40E346ea85D72661fcE3Ba3F81CB2c560d84); // Main deployer/admin - receives contract fees
     
@@ -140,7 +153,6 @@ contract Submission is Ownable, ReentrancyGuard, AccessControl {
     
     event SubmissionFeeUpdated(uint256 newFee, bool enabled);
     event TreasuryUpdated(address indexed oldTreasury, address indexed newTreasury);
-    event FeeRefunded(uint256 indexed submissionId, address indexed user, uint256 amount);
     event HypercertEligible(address indexed user, uint256 cleanupCount, uint256 hypercertNumber);
     event ReferralRegistered(address indexed referrer, address indexed invitee);
     event ImpactFormSubmitted(address indexed user, uint256 submissionId, uint256 totalForms);
@@ -427,16 +439,7 @@ contract Submission is Ownable, ReentrancyGuard, AccessControl {
             block.timestamp
         );
         
-        // Refund submission fee if it was paid and not already refunded
-        if (submission.feePaid > 0 && !submission.feeRefunded) {
-            submission.feeRefunded = true;
-            totalFeesRefunded += submission.feePaid;
-            
-            (bool success, ) = payable(submission.submitter).call{value: submission.feePaid}("");
-            if (!success) revert SUBMISSION__RefundFailed();
-            
-            emit FeeRefunded(submissionId, submission.submitter, submission.feePaid);
-        }
+        // Fee is kept by treasury - no refund for rejected submissions
     }
     
     /**

@@ -35,8 +35,11 @@ async function findUserCleanupOnchain(
     
     // Get the current cleanup counter
     const counter = await getCleanupCounter()
+    console.log('[findUserCleanupOnchain] Cleanup counter:', counter.toString())
+    
     if (counter <= BigInt(1)) {
       // No cleanups exist yet
+      console.log('[findUserCleanupOnchain] No cleanups exist yet')
       return null
     }
     
@@ -44,6 +47,7 @@ async function findUserCleanupOnchain(
     // Start from the most recent and work backwards
     const maxCheck = 50
     const startId = counter > BigInt(maxCheck) ? counter - BigInt(maxCheck) : BigInt(1)
+    console.log(`[findUserCleanupOnchain] Searching from ${startId.toString()} to ${(counter - BigInt(1)).toString()} for user ${userAddress}`)
     
     for (let id = counter - BigInt(1); id >= startId; id--) {
       try {
@@ -51,7 +55,12 @@ async function findUserCleanupOnchain(
         
         // Check if this cleanup belongs to the user
         if (status.user.toLowerCase() === userAddress.toLowerCase()) {
-          console.log(`Found user's cleanup onchain: ${id.toString()}`)
+          console.log(`[findUserCleanupOnchain] ✅ Found user's cleanup onchain: ${id.toString()}`, {
+            verified: status.verified,
+            claimed: status.claimed,
+            level: status.level,
+            rejected: status.rejected,
+          })
           
           // Update localStorage with the found cleanup ID
           if (typeof window !== 'undefined') {
@@ -71,15 +80,16 @@ async function findUserCleanupOnchain(
         // Skip if cleanup doesn't exist or other error
         const errorMessage = error?.message || String(error)
         if (!errorMessage.includes('does not exist')) {
-          console.warn(`Error checking cleanup ${id.toString()}:`, errorMessage)
+          console.warn(`[findUserCleanupOnchain] Error checking cleanup ${id.toString()}:`, errorMessage)
         }
         // Continue checking other IDs
       }
     }
     
+    console.log('[findUserCleanupOnchain] ❌ No cleanup found for user')
     return null
   } catch (error) {
-    console.error('Error finding cleanup onchain:', error)
+    console.error('[findUserCleanupOnchain] Error finding cleanup onchain:', error)
     return null
   }
 }
@@ -169,7 +179,9 @@ export async function getUserCleanupStatus(
   rejected?: boolean
 }> {
   try {
+    console.log('[getUserCleanupStatus] Checking status for:', userAddress)
     const latest = await getLatestCleanupStatus(userAddress)
+    console.log('[getUserCleanupStatus] Latest cleanup status:', latest)
     
     if (!latest) {
       // Check if there's a rejected cleanup that was recently cleared
@@ -212,12 +224,60 @@ export async function getUserCleanupStatus(
     }
     
     const hasPending = !latest.verified
-    const canClaim = latest.verified && !latest.claimed
+    // canClaim = verified AND Impact Product NOT claimed (not base reward claimed)
+    // We need to check Impact Product claim status separately
+    let canClaim = false
+    try {
+      const { getUserLevel } = await import('./contracts')
+      const userLevel = await getUserLevel(userAddress)
+      // If cleanup is verified and user hasn't claimed Impact Product for this level yet
+      // For now, we'll check if cleanup is verified and user level is less than cleanup level
+      // This is a simplified check - ideally we'd track which cleanups were used for which level
+      canClaim = latest.verified && !impactProductClaimed
+    } catch (levelError) {
+      // Fallback: if verified and base reward not claimed, allow claim
+      console.warn('Could not check Impact Product claim status, using fallback:', levelError)
+      canClaim = latest.verified && !status.claimed
+    }
+    
+    console.log('[getUserCleanupStatus] Calculated status:', {
+      hasPending,
+      canClaim,
+      verified: latest.verified,
+      claimed: latest.claimed,
+      cleanupId: latest.cleanupId.toString(),
+    })
     
     // Check if this cleanup was rejected
-    const { getCleanupStatus } = await import('./contracts')
+    const { getCleanupStatus, getUserLevel } = await import('./contracts')
     const status = await getCleanupStatus(latest.cleanupId)
     const isRejected = status.rejected
+    
+    // IMPORTANT: 'status.claimed' refers to base cleanup reward (10 cDCU), NOT Impact Product claim
+    // We need to check if the Impact Product was actually claimed by checking the user's level
+    // If user's level matches the cleanup's level, then this cleanup's Impact Product was claimed
+    let impactProductClaimed = false
+    try {
+      const userLevel = await getUserLevel(userAddress)
+      // If user has a level >= latest.level, they've claimed at least up to that level
+      // But we need to be more precise - check if THIS cleanup's level was claimed
+      // For now, we'll assume if user has any level and cleanup is verified, they can claim
+      // The actual check should be: has user claimed Impact Product for THIS cleanup's level?
+      impactProductClaimed = userLevel >= (latest.level || 1)
+    } catch (levelError) {
+      console.warn('Could not check user level for Impact Product claim status:', levelError)
+      // Fall back to checking if base reward was claimed
+      impactProductClaimed = status.claimed
+    }
+    
+    console.log('[getUserCleanupStatus] Onchain status check:', {
+      verified: status.verified,
+      baseRewardClaimed: status.claimed, // Base cleanup reward (10 cDCU)
+      impactProductClaimed, // Impact Product NFT claim
+      rejected: status.rejected,
+      level: status.level,
+      user: status.user,
+    })
     
     if (isRejected) {
       // Clear localStorage for rejected cleanup
@@ -234,7 +294,7 @@ export async function getUserCleanupStatus(
       }
     }
     
-    return {
+    const result = {
       hasPendingCleanup: hasPending,
       canClaim,
       cleanupId: latest.cleanupId,
@@ -250,6 +310,9 @@ export async function getUserCleanupStatus(
         ? undefined
         : 'No cleanup ready to claim.',
     }
+    
+    console.log('[getUserCleanupStatus] Final result:', result)
+    return result
   } catch (error) {
     console.error('Error checking cleanup status:', error)
     return {
