@@ -1,8 +1,4 @@
-import chai from "chai";
-import chaiAsPromised from "chai-as-promised";
-chai.use(chaiAsPromised);
-const { expect } = chai;
-
+import { expect } from "chai";
 import hre from "hardhat";
 import { loadFixture, time } from "@nomicfoundation/hardhat-network-helpers";
 
@@ -53,23 +49,26 @@ describe("DCURewardManager", function () {
   // Impact Product Rewards
   //
   describe("Impact Product Claim Rewards", function () {
+
     it("Should not reward if PoI is not verified", async function () {
       const { dcuRewardManager, user1, owner } =
         await loadFixture(deployContractsFixture);
 
-      await expect(
-        dcuRewardManager.write.rewardImpactProductClaim(
+      try {
+        await dcuRewardManager.write.rewardImpactProductClaim(
           [user1.account.address, 1n],
           { account: owner.account }
-        )
-      ).to.be.rejectedWith("User not eligible for rewards");
+        );
+        expect.fail("Expected revert but function succeeded");
+      } catch (err: any) {
+        expect(err.message).to.include("User not eligible for rewards");
+      }
     });
 
-    it("Should reward after PoI verification", async function () {
+    it("Should reward after PoI verification and user mints NFT (safeMint)", async function () {
       const { dcuRewardManager, impactProductNft, user1, owner } =
         await loadFixture(deployContractsFixture);
 
-      // Verify PoI
       await impactProductNft.write.verifyPOI(
         [user1.account.address],
         { account: owner.account }
@@ -80,9 +79,8 @@ describe("DCURewardManager", function () {
         { account: owner.account }
       );
 
-      // User mints their NFT
-      await impactProductNft.write.updateMintStatus(
-        [user1.account.address, true],
+      await impactProductNft.write.mint(
+        [user1.account.address],
         { account: owner.account }
       );
 
@@ -112,8 +110,8 @@ describe("DCURewardManager", function () {
         { account: owner.account }
       );
 
-      await impactProductNft.write.updateMintStatus(
-        [user1.account.address, true],
+      await impactProductNft.write.mint(
+        [user1.account.address],
         { account: owner.account }
       );
 
@@ -122,12 +120,15 @@ describe("DCURewardManager", function () {
         { account: owner.account }
       );
 
-      await expect(
-        dcuRewardManager.write.rewardImpactProductClaim(
+      try {
+        await dcuRewardManager.write.rewardImpactProductClaim(
           [user1.account.address, 1n],
           { account: owner.account }
-        )
-      ).to.be.rejectedWith("Level already claimed");
+        );
+        expect.fail("Expected revert but function succeeded");
+      } catch (err: any) {
+        expect(err.message).to.include("Level already claimed");
+      }
     });
   });
 
@@ -210,12 +211,12 @@ describe("DCURewardManager", function () {
 
       const ref = (await dcuRewardManager.read.getReferrer([
         user2.account.address
-      ])) as `0x${string}`;
+      ])) as unknown as string;
 
       expect(ref.toLowerCase()).to.equal(user1.account.address.toLowerCase());
     });
 
-    it("Should reward referrer", async function () {
+    it("Should reward referrer when invitee claims level", async function () {
       const { dcuRewardManager, impactProductNft, user1, user2, owner } =
         await loadFixture(deployContractsFixture);
 
@@ -234,8 +235,8 @@ describe("DCURewardManager", function () {
         { account: owner.account }
       );
 
-      await impactProductNft.write.updateMintStatus(
-        [user2.account.address, true],
+      await impactProductNft.write.mint(
+        [user2.account.address],
         { account: owner.account }
       );
 
@@ -247,6 +248,7 @@ describe("DCURewardManager", function () {
       const bal = await dcuRewardManager.read.getBalance([
         user1.account.address
       ]);
+
       expect(bal).to.equal(1n * 10n ** 18n);
     });
   });
@@ -255,7 +257,7 @@ describe("DCURewardManager", function () {
   // Claiming
   //
   describe("Reward Claiming", function () {
-    it("Should allow claim", async function () {
+    it("Should allow claim and mint DCU to user", async function () {
       const { dcuRewardManager, impactProductNft, user1, owner } =
         await loadFixture(deployContractsFixture);
 
@@ -269,8 +271,8 @@ describe("DCURewardManager", function () {
         { account: owner.account }
       );
 
-      await impactProductNft.write.updateMintStatus(
-        [user1.account.address, true],
+      await impactProductNft.write.mint(
+        [user1.account.address],
         { account: owner.account }
       );
 
