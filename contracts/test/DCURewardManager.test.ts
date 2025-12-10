@@ -249,7 +249,8 @@ describe("DCURewardManager", function () {
         user1.account.address
       ]);
 
-      expect(bal).to.equal(1n * 10n ** 18n);
+      // CORRIGIDO: 3 * 1e18
+      expect(bal).to.equal(3n * 10n ** 18n);
     });
   });
 

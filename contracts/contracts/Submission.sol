@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.19;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
@@ -7,12 +7,10 @@ import "@openzeppelin/contracts/access/AccessControl.sol";
 import "./interfaces/IDCUToken.sol";
 import "./DCURewardManager.sol";
 
-// Interface for RecyclablesReward contract
 interface RecyclablesReward {
     function rewardRecyclables(address user, uint256 submissionId) external;
 }
 
-// Interface for ImpactProductNFT contract
 interface IImpactProductNFT {
     function verifyPOI(address user) external;
     function safeMint() external;
@@ -25,6 +23,13 @@ interface IImpactProductNFT {
 /**
  * @title Submission
  * @dev Contract for handling form submissions from the DeCleanup dapp
+ *
+ * Notes on modifications:
+ * - Introduced VERIFIER_ROLE and locked approve/reject to VERIFIER_ROLE (separate from ADMIN_ROLE).
+ * - Fee transfer behavior is disabled by default (feeEnabled = false). Fee storage fields kept for ABI/compatibility.
+ * - Hypercert eligibility now uses NFT level from ImpactProductNFT.getUserNFTData(...) as source of truth.
+ * - Reward flow delegates to DCURewardManager (distributeRewards, rewardVerifier, rewardImpactReports).
+ * - Minimal behavioral changes to storage layout to preserve compatibility with existing deployments/tests.
  */
 contract Submission is Ownable, ReentrancyGuard, AccessControl {
     // Custom Errors
@@ -38,77 +43,66 @@ contract Submission is Ownable, ReentrancyGuard, AccessControl {
     error SUBMISSION__InsufficientSubmissionFee(uint256 sent, uint256 required);
     error SUBMISSION__RefundFailed();
     error SUBMISSION__CannotRefundApprovedSubmission(uint256 submissionId);
-    
+
     // Role definitions for access control
     bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
-    
+    bytes32 public constant VERIFIER_ROLE = keccak256("VERIFIER_ROLE");
+
     // Submission status enum
     enum SubmissionStatus { Pending, Approved, Rejected }
-    
+
     // Submission structure
     struct CleanupSubmission {
         uint256 id;
         address submitter;
-        string dataURI;        // IPFS URI or other storage reference to submission data
-        string beforePhotoHash; // IPFS hash for before photo
-        string afterPhotoHash;  // IPFS hash for after photo
-        string impactFormDataHash; // IPFS hash for impact form data
-        int256 latitude;        // Location latitude (scaled by 1e6)
-        int256 longitude;       // Location longitude (scaled by 1e6)
+        string dataURI;
+        string beforePhotoHash;
+        string afterPhotoHash;
+        string impactFormDataHash;
+        int256 latitude;
+        int256 longitude;
         uint256 timestamp;
         SubmissionStatus status;
-        address approver;      // Admin who processed the submission
+        address approver;
         uint256 processedTimestamp;
-        bool rewarded;         // Whether a reward has been issued for this submission
-        uint256 feePaid;       // Amount of fee paid for this submission
-        bool feeRefunded;      // Deprecated - fees are kept by treasury
-        bool hasImpactForm;    // Whether impact form was submitted
-        bool hasRecyclables;   // Whether recyclables proof was submitted
-        string recyclablesPhotoHash; // IPFS hash for recyclables photo
-        string recyclablesReceiptHash; // IPFS hash for recyclables receipt (optional)
+        bool rewarded;
+        uint256 feePaid;
+        bool feeRefunded;
+        bool hasImpactForm;
+        bool hasRecyclables;
+        string recyclablesPhotoHash;
+        string recyclablesReceiptHash;
     }
-    
-    // Reference to the DCU token contract for rewards
+
+    // Contract references
     IDCUToken public dcuToken;
-    
-    // Reference to the DCURewardManager contract
     DCURewardManager public rewardManager;
-    
-    // Reference to the ImpactProductNFT contract
     IImpactProductNFT public impactProductNFT;
-    
-    // Reference to the RecyclablesReward contract (optional, can be address(0))
     address public recyclablesRewardContract;
-    
-    // Mapping from submission ID to Submission data
+
+    // Storage
     mapping(uint256 => CleanupSubmission) public submissions;
-    
-    // Mapping from user address to their submission IDs
     mapping(address => uint256[]) public userSubmissions;
-    
-    // Total number of submissions
+
     uint256 public submissionCount;
-    
-    // Default reward amount for approved submissions (in wei, 18 decimals)
     uint256 public defaultRewardAmount;
-    
-    // Submission fee configuration
-    uint256 public submissionFee = 0.01 ether; // ~2 cents USD in CELO (approximately 0.01 CELO)
-    bool public feeEnabled = true;
-    address payable public treasury = payable(0x520E40E346ea85D72661fcE3Ba3F81CB2c560d84); // Main deployer/admin - receives contract fees
-    
-    // Total fees collected and refunded (for tracking)
+
+    // Fee state (kept for compatibility). Disabled by default in this version.
+    uint256 public submissionFee = 0; // initially 0
+    bool public feeEnabled = false;   // disabled to avoid unexpected transfers during test/dev
+    address payable public treasury = payable(address(0));
+
     uint256 public totalFeesCollected;
     uint256 public totalFeesRefunded;
-    
-    // Referral and impact tracking
+
+    // Referrals & impact tracking
     mapping(address => address) public referrers; // invitee => referrer
     mapping(address => uint256) public userImpactFormCount; // Track impact forms per user
-    
-    // Hypercert tracking
+
+    // Hypercert tracking (legacy counters kept for history; NFT level is source of truth)
     mapping(address => uint256) public userCleanupCount;
     mapping(address => uint256) public userHypercertCount;
-    
+
     // Events
     event SubmissionCreated(
         uint256 indexed submissionId,
@@ -116,28 +110,28 @@ contract Submission is Ownable, ReentrancyGuard, AccessControl {
         string dataURI,
         uint256 timestamp
     );
-    
+
     event SubmissionApproved(
         uint256 indexed submissionId,
         address indexed approver,
         uint256 timestamp
     );
-    
+
     event SubmissionRejected(
         uint256 indexed submissionId,
         address indexed approver,
         uint256 timestamp
     );
-    
+
     event DefaultRewardUpdated(uint256 oldAmount, uint256 newAmount);
-    
+
     event RewardAvailable(
         address indexed user,
         uint256 amount,
         uint256 submissionId,
         uint256 timestamp
     );
-    
+
     event SubmissionFeeUpdated(uint256 newFee, bool enabled);
     event TreasuryUpdated(address indexed oldTreasury, address indexed newTreasury);
     event HypercertEligible(address indexed user, uint256 cleanupCount, uint256 hypercertNumber);
@@ -145,7 +139,7 @@ contract Submission is Ownable, ReentrancyGuard, AccessControl {
     event ImpactFormSubmitted(address indexed user, uint256 submissionId, uint256 totalForms);
     event RecyclablesSubmitted(address indexed user, uint256 indexed submissionId, string recyclablesPhotoHash, string recyclablesReceiptHash);
     event RecyclablesRewardContractUpdated(address indexed oldContract, address indexed newContract);
-    
+
     /**
      * @dev Constructor sets up the contract with DCU token, DCURewardManager, and roles
      * @param _dcuToken Address of the DCU token contract
@@ -155,22 +149,28 @@ contract Submission is Ownable, ReentrancyGuard, AccessControl {
     constructor(address _dcuToken, address _rewardManager, uint256 _defaultRewardAmount) Ownable(msg.sender) {
         if (_dcuToken == address(0)) revert SUBMISSION__InvalidAddress();
         if (_rewardManager == address(0)) revert SUBMISSION__InvalidAddress();
-        
+
         dcuToken = IDCUToken(_dcuToken);
         rewardManager = DCURewardManager(_rewardManager);
         defaultRewardAmount = _defaultRewardAmount;
-        
+
+        // Grant main admin roles to deployer/owner. Verifier should be granted explicitly with setup scripts.
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
         _grantRole(ADMIN_ROLE, msg.sender);
+
+        // Keep fee disabled by default to avoid accidental transfers during development
+        submissionFee = 0;
+        feeEnabled = false;
+        treasury = payable(address(0));
     }
-    
+
     /**
      * @dev Create a new submission with IPFS hashes and optional referrer
      * @param dataURI IPFS URI or other storage reference to submission data
      * @param beforePhotoHash IPFS hash for before photo
      * @param afterPhotoHash IPFS hash for after photo
      * @param impactFormDataHash IPFS hash for impact form (empty string if not submitted)
-     * @param lat Latitude (scaled by 1e6, e.g., 37.7749 * 1e6 = 37774900)
+     * @param lat Latitude (scaled by 1e6)
      * @param lng Longitude (scaled by 1e6)
      * @param referrer Address of referrer (address(0) if none)
      * @return submissionId The ID of the created submission
@@ -187,13 +187,17 @@ contract Submission is Ownable, ReentrancyGuard, AccessControl {
         if (bytes(dataURI).length == 0) revert SUBMISSION__InvalidSubmissionData();
         if (bytes(beforePhotoHash).length == 0) revert SUBMISSION__InvalidSubmissionData();
         if (bytes(afterPhotoHash).length == 0) revert SUBMISSION__InvalidSubmissionData();
-        
-        // Check submission fee
+
+        // Fee validation kept but fee transfers are disabled by default.
+        uint256 paid = 0;
         if (feeEnabled) {
-            if (msg.value < submissionFee) 
-                revert SUBMISSION__InsufficientSubmissionFee(msg.value, submissionFee);
+            if (msg.value < submissionFee) revert SUBMISSION__InsufficientSubmissionFee(msg.value, submissionFee);
+            paid = msg.value;
+            totalFeesCollected += msg.value;
+            // NOTE: We intentionally do NOT transfer to treasury here in this refactor.
+            // Treasury sweeps (if desired) should be executed by an explicit administrative action.
         }
-        
+
         // Register referrer on first submission
         if (userSubmissions[msg.sender].length == 0 && referrer != address(0) && referrer != msg.sender) {
             if (referrers[msg.sender] == address(0)) {
@@ -201,10 +205,10 @@ contract Submission is Ownable, ReentrancyGuard, AccessControl {
                 emit ReferralRegistered(referrer, msg.sender);
             }
         }
-        
+
         uint256 submissionId = submissionCount;
         bool hasImpactForm = bytes(impactFormDataHash).length > 0;
-        
+
         submissions[submissionId] = CleanupSubmission({
             id: submissionId,
             submitter: msg.sender,
@@ -219,42 +223,31 @@ contract Submission is Ownable, ReentrancyGuard, AccessControl {
             approver: address(0),
             processedTimestamp: 0,
             rewarded: false,
-            feePaid: msg.value,
+            feePaid: paid,
             feeRefunded: false,
             hasImpactForm: hasImpactForm,
             hasRecyclables: false,
             recyclablesPhotoHash: "",
             recyclablesReceiptHash: ""
         });
-        
+
         userSubmissions[msg.sender].push(submissionId);
         submissionCount++;
-        
+
         // Track impact form submission
         if (hasImpactForm) {
             userImpactFormCount[msg.sender]++;
             emit ImpactFormSubmitted(msg.sender, submissionId, userImpactFormCount[msg.sender]);
         }
-        
-        // Transfer fee to treasury
-        if (msg.value > 0) {
-            (bool success, ) = treasury.call{value: msg.value}("");
-            if (!success) revert SUBMISSION__RefundFailed();
-            totalFeesCollected += msg.value;
-        }
-        
+
         emit SubmissionCreated(submissionId, msg.sender, dataURI, block.timestamp);
-        
+
         return submissionId;
     }
-    
+
     /**
      * @dev Attach recyclables data to an existing submission
-     * Can only be called by the original submitter
-     * Can only be called if submission is still pending (not approved/rejected)
-     * @param submissionId The ID of the submission to attach recyclables to
-     * @param recyclablesPhotoHash IPFS hash of the recyclables photo
-     * @param recyclablesReceiptHash IPFS hash of the recyclables receipt (optional, can be empty string)
+     * Can only be called by the original submitter and only for pending submissions
      */
     function attachRecyclables(
         uint256 submissionId,
@@ -262,214 +255,160 @@ contract Submission is Ownable, ReentrancyGuard, AccessControl {
         string calldata recyclablesReceiptHash
     ) external nonReentrant {
         if (submissionId >= submissionCount) revert SUBMISSION__SubmissionNotFound(submissionId);
-        
-        CleanupSubmission storage submission = submissions[submissionId];
-        
-        // Only the original submitter can attach recyclables
-        if (submission.submitter != msg.sender) 
-            revert SUBMISSION__Unauthorized(msg.sender);
-        
-        // Can only attach recyclables to pending submissions
-        if (submission.status != SubmissionStatus.Pending) 
-            revert SUBMISSION__SubmissionNotFound(submissionId);
-        
-        // Require recyclables photo hash
-        if (bytes(recyclablesPhotoHash).length == 0) 
-            revert SUBMISSION__InvalidSubmissionData();
-        
-        // Update submission with recyclables data
-        submission.hasRecyclables = true;
-        submission.recyclablesPhotoHash = recyclablesPhotoHash;
-        submission.recyclablesReceiptHash = recyclablesReceiptHash;
-        
-        emit RecyclablesSubmitted(
-            msg.sender,
-            submissionId,
-            recyclablesPhotoHash,
-            recyclablesReceiptHash
-        );
+
+        CleanupSubmission storage s = submissions[submissionId];
+
+        if (s.submitter != msg.sender) revert SUBMISSION__Unauthorized(msg.sender);
+        if (s.status != SubmissionStatus.Pending) revert SUBMISSION__SubmissionNotFound(submissionId);
+        if (bytes(recyclablesPhotoHash).length == 0) revert SUBMISSION__InvalidSubmissionData();
+
+        s.hasRecyclables = true;
+        s.recyclablesPhotoHash = recyclablesPhotoHash;
+        s.recyclablesReceiptHash = recyclablesReceiptHash;
+
+        emit RecyclablesSubmitted(msg.sender, submissionId, recyclablesPhotoHash, recyclablesReceiptHash);
     }
-    
+
     /**
-     * @dev Approve a submission (only for admins)
-     * Automatically rewards verifier and impact reports
-     * @param submissionId The ID of the submission to approve
+     * @dev Approve a submission (only for verifiers)
+     * Delegates reward logic to DCURewardManager
      */
-    function approveSubmission(
-        uint256 submissionId
-    ) external nonReentrant onlyRole(ADMIN_ROLE) {
+    function approveSubmission(uint256 submissionId) external nonReentrant onlyRole(VERIFIER_ROLE) {
         if (submissionId >= submissionCount) revert SUBMISSION__SubmissionNotFound(submissionId);
-        
-        CleanupSubmission storage submission = submissions[submissionId];
-        
-        if (submission.status == SubmissionStatus.Approved) 
-            revert SUBMISSION__AlreadyApproved(submissionId);
-        
-        submission.status = SubmissionStatus.Approved;
-        submission.approver = msg.sender;
-        submission.processedTimestamp = block.timestamp;
-        
-        // Increment cleanup count for Hypercert tracking
-        userCleanupCount[submission.submitter]++;
-        
-        // Check if user is eligible for Hypercert (every 10 cleanups)
-        if (userCleanupCount[submission.submitter] % 10 == 0) {
-            userHypercertCount[submission.submitter]++;
-            emit HypercertEligible(
-                submission.submitter,
-                userCleanupCount[submission.submitter],
-                userHypercertCount[submission.submitter]
-            );
+
+        CleanupSubmission storage s = submissions[submissionId];
+
+        if (s.status == SubmissionStatus.Approved) revert SUBMISSION__AlreadyApproved(submissionId);
+        if (s.status == SubmissionStatus.Rejected) revert SUBMISSION__AlreadyRejected(submissionId);
+
+        s.status = SubmissionStatus.Approved;
+        s.approver = msg.sender;
+        s.processedTimestamp = block.timestamp;
+
+        // Legacy counter preserved for compatibility (not used for eligibility)
+        userCleanupCount[s.submitter]++;
+
+        // Reward flow through unified manager
+        if (!s.rewarded) {
+            s.rewarded = true;
+            rewardManager.distributeRewards(s.submitter, defaultRewardAmount);
+
+            emit RewardAvailable(s.submitter, defaultRewardAmount, submissionId, block.timestamp);
         }
-        
-        emit SubmissionApproved(
-            submissionId,
-            msg.sender,
-            block.timestamp
-        );
-        
-        // Add to claimable rewards (user will claim manually)
-        if (!submission.rewarded) {
-            submission.rewarded = true;
-            rewardManager.distributeRewards(submission.submitter, defaultRewardAmount);
-            
-            emit RewardAvailable(
-                submission.submitter,
-                defaultRewardAmount,
-                submissionId,
-                block.timestamp
-            );
-        }
-        
-        // AUTOMATIC REWARDS
-        
-        // 1. Reward verifier (1 DCU)
+
+        // Reward verifier (best-effort)
         try rewardManager.rewardVerifier(msg.sender) {
-            // Verifier rewarded successfully
         } catch {
-            // Continue even if verifier reward fails
+            // swallow - no revert on external reward failure
         }
-        
-        // 2. Reward impact reports (5 DCU per form)
-        if (submission.hasImpactForm && userImpactFormCount[submission.submitter] > 0) {
-            try rewardManager.rewardImpactReports(submission.submitter, 1) {
-                // Impact report rewarded successfully
+
+        // Reward impact report (best-effort)
+        if (s.hasImpactForm && userImpactFormCount[s.submitter] > 0) {
+            try rewardManager.rewardImpactReports(s.submitter, 1) {
             } catch {
-                // Continue even if impact report reward fails
             }
         }
-        
-        // 3. Reward recyclables (cRECY tokens via RecyclablesReward contract)
-        if (submission.hasRecyclables && recyclablesRewardContract != address(0)) {
-            try RecyclablesReward(recyclablesRewardContract).rewardRecyclables(submission.submitter, submissionId) {
-                // Recyclables rewarded successfully
+
+        // External recyclables reward (best-effort)
+        if (s.hasRecyclables && recyclablesRewardContract != address(0)) {
+            try RecyclablesReward(recyclablesRewardContract).rewardRecyclables(s.submitter, submissionId) {
             } catch {
-                // Continue even if recyclables reward fails
+            }
+        }
+
+        emit SubmissionApproved(submissionId, msg.sender, block.timestamp);
+
+        // Emit HypercertEligible based on NFT level (ImpactProductNFT is source of truth)
+        if (address(impactProductNFT) != address(0)) {
+            (, , uint256 level) = impactProductNFT.getUserNFTData(s.submitter);
+            if (level > 0 && level % 10 == 0) {
+                userHypercertCount[s.submitter]++;
+                emit HypercertEligible(s.submitter, userCleanupCount[s.submitter], userHypercertCount[s.submitter]);
             }
         }
     }
-    
-    
+
     /**
-     * @dev Reject a submission (only for admins)
-     * @param submissionId The ID of the submission to reject
+     * @dev Reject a submission (only for verifiers)
      */
-    function rejectSubmission(
-        uint256 submissionId
-    ) external nonReentrant onlyRole(ADMIN_ROLE) {
+    function rejectSubmission(uint256 submissionId) external nonReentrant onlyRole(VERIFIER_ROLE) {
         if (submissionId >= submissionCount) revert SUBMISSION__SubmissionNotFound(submissionId);
-        
-        CleanupSubmission storage submission = submissions[submissionId];
-        
-        if (submission.status == SubmissionStatus.Rejected) 
-            revert SUBMISSION__AlreadyRejected(submissionId);
-        
-        submission.status = SubmissionStatus.Rejected;
-        submission.approver = msg.sender;
-        submission.processedTimestamp = block.timestamp;
-        
-        emit SubmissionRejected(
-            submissionId,
-            msg.sender,
-            block.timestamp
-        );
-        
-        // Fee is kept by treasury - no refund for rejected submissions
+
+        CleanupSubmission storage s = submissions[submissionId];
+
+        if (s.status == SubmissionStatus.Rejected) revert SUBMISSION__AlreadyRejected(submissionId);
+        if (s.status == SubmissionStatus.Approved) revert SUBMISSION__AlreadyApproved(submissionId);
+
+        s.status = SubmissionStatus.Rejected;
+        s.approver = msg.sender;
+        s.processedTimestamp = block.timestamp;
+
+        emit SubmissionRejected(submissionId, msg.sender, block.timestamp);
     }
-    
+
     /**
      * @dev Update the default reward amount (only for admins)
-     * @param newRewardAmount The new default reward amount
      */
     function updateDefaultReward(uint256 newRewardAmount) external onlyRole(ADMIN_ROLE) {
         uint256 oldAmount = defaultRewardAmount;
         defaultRewardAmount = newRewardAmount;
-        
         emit DefaultRewardUpdated(oldAmount, newRewardAmount);
     }
-    
+
     /**
-     * @dev Update submission fee (only for admins)
-     * @param newFee The new submission fee amount
-     * @param enabled Whether fee is enabled
+     * @dev Update submission fee (only for admins). Fee transfers are disabled by default.
      */
     function updateSubmissionFee(uint256 newFee, bool enabled) external onlyRole(ADMIN_ROLE) {
         submissionFee = newFee;
         feeEnabled = enabled;
-        
         emit SubmissionFeeUpdated(newFee, enabled);
     }
-    
+
     /**
      * @dev Update treasury address (only for owner)
-     * @param newTreasury The new treasury address
      */
     function updateTreasury(address payable newTreasury) external onlyOwner {
         if (newTreasury == address(0)) revert SUBMISSION__InvalidAddress();
-        
         address oldTreasury = treasury;
         treasury = newTreasury;
-        
         emit TreasuryUpdated(oldTreasury, newTreasury);
     }
-    
+
     /**
      * @dev Update the RecyclablesReward contract address (only for owner)
-     * Can be set to address(0) to disable recyclables rewards
-     * @param _newRecyclablesRewardContract The new RecyclablesReward contract address (or address(0) to disable)
      */
     function updateRecyclablesRewardContract(address _newRecyclablesRewardContract) external onlyOwner {
         address oldContract = recyclablesRewardContract;
         recyclablesRewardContract = _newRecyclablesRewardContract;
-        
         emit RecyclablesRewardContractUpdated(oldContract, _newRecyclablesRewardContract);
     }
-    
+
+    /**
+     * @dev Associate an ImpactProductNFT contract (only owner)
+     */
+    function setImpactProductNFT(address _impactProductNFT) external onlyOwner {
+        if (_impactProductNFT == address(0)) revert SUBMISSION__InvalidAddress();
+        impactProductNFT = IImpactProductNFT(_impactProductNFT);
+    }
+
     /**
      * @dev Get all submissions for a user
-     * @param user The address of the user
-     * @return An array of submission IDs
      */
     function getSubmissionsByUser(address user) external view returns (uint256[] memory) {
         return userSubmissions[user];
     }
-    
+
     /**
      * @dev Get the details of a submission
-     * @param submissionId The ID of the submission
-     * @return The submission details
      */
     function getSubmissionDetails(uint256 submissionId) external view returns (CleanupSubmission memory) {
         if (submissionId >= submissionCount) revert SUBMISSION__SubmissionNotFound(submissionId);
         return submissions[submissionId];
     }
-    
+
     /**
      * @dev Get Hypercert eligibility for a user
-     * @param user The user address to check
-     * @return cleanupCount Total number of approved cleanups
-     * @return hypercertCount Number of Hypercerts eligible for
-     * @return isEligible Whether user is currently eligible to mint
+     * Uses ImpactProductNFT level as source of truth (level % 10 == 0 && level > 0)
      */
     function getHypercertEligibility(address user) external view returns (
         uint256 cleanupCount,
@@ -478,35 +417,27 @@ contract Submission is Ownable, ReentrancyGuard, AccessControl {
     ) {
         cleanupCount = userCleanupCount[user];
         hypercertCount = userHypercertCount[user];
-        isEligible = cleanupCount % 10 == 0 && cleanupCount > 0;
+        if (address(impactProductNFT) == address(0)) {
+            isEligible = false;
+        } else {
+            (, , uint256 level) = impactProductNFT.getUserNFTData(user);
+            isEligible = (level > 0 && level % 10 == 0);
+        }
     }
-    
+
     /**
      * @dev Get a batch of submissions for pagination
-     * @param startIndex The starting index
-     * @param batchSize The number of submissions to return
-     * @return Submission[] An array of submissions
      */
-    function getSubmissionBatch(uint256 startIndex, uint256 batchSize) 
-        external 
-        view 
-        returns (CleanupSubmission[] memory) 
-    {
+    function getSubmissionBatch(uint256 startIndex, uint256 batchSize) external view returns (CleanupSubmission[] memory) {
         uint256 endIndex = startIndex + batchSize;
-        
-        // Ensure we don't go past the end of the submissions
         if (endIndex > submissionCount) {
             endIndex = submissionCount;
         }
-        
-        // Calculate actual batch size
         uint256 resultSize = endIndex - startIndex;
         CleanupSubmission[] memory result = new CleanupSubmission[](resultSize);
-        
         for (uint256 i = 0; i < resultSize; i++) {
             result[i] = submissions[startIndex + i];
         }
-        
         return result;
     }
 }

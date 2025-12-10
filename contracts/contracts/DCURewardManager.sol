@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.19;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
@@ -40,7 +40,7 @@ contract DCURewardManager is Ownable, ReentrancyGuard {
     address public treasury;
 
     uint256 public impactProductClaimReward = 10 ether;
-    uint256 public referralReward = 1 ether;
+    uint256 public referralReward = 3 ether; // standardized per Issue #5
     uint256 public streakReward = 3 ether;
     uint256 public impactReportReward = 5 ether;
     uint256 public verifierReward = 1 ether;
@@ -79,6 +79,7 @@ contract DCURewardManager is Ownable, ReentrancyGuard {
     event SubmissionContractUpdated(address indexed oldSubmission, address indexed newSubmission);
     event TreasuryUpdated(address indexed oldTreasury, address indexed newTreasury);
     event RewardAmountsUpdated(uint256 claimReward, uint256 referralReward, uint256 streakReward);
+    event ReferralRewardUpdated(uint256 oldAmount, uint256 newAmount);
     event HypercertRewardClaimed(address indexed user, uint256 hypercertNumber, uint256 amount);
     event DCURewardImpactProduct(address indexed user, uint256 indexed level, uint256 amount);
     event DCURewardReferral(address indexed referrer, address indexed invitee, uint256 amount);
@@ -140,6 +141,17 @@ contract DCURewardManager is Ownable, ReentrancyGuard {
         referralReward = newReferralReward;
         streakReward = newStreakReward;
         emit RewardAmountsUpdated(newClaimReward, newReferralReward, newStreakReward);
+    }
+
+    /**
+     * @dev Admin setter for referral reward with safety checks.
+     */
+    function updateReferralReward(uint256 newReferralReward) external onlyOwner {
+        require(newReferralReward > 0, "REWARD__ZeroAmount");
+        _validateRewardAmount(newReferralReward);
+        uint256 old = referralReward;
+        referralReward = newReferralReward;
+        emit ReferralRewardUpdated(old, newReferralReward);
     }
 
     function setRewardEligibilityForTesting(address user, bool status) external onlyOwner {

@@ -37,6 +37,14 @@ describe("Submission", function () {
       { account: owner.account }
     );
 
+    // --- IMPORTANT: grant VERIFIER_ROLE to admin (new requirement)
+    const VERIFIER_ROLE = await submission.read.VERIFIER_ROLE();
+    await submission.write.grantRole(
+      [VERIFIER_ROLE, admin.account.address],
+      { account: owner.account }
+    );
+
+    // And admin role too (unchanged)
     const ADMIN_ROLE = await submission.read.ADMIN_ROLE();
     await submission.write.grantRole(
       [ADMIN_ROLE, admin.account.address],
@@ -130,7 +138,7 @@ describe("Submission", function () {
       expect(initial).to.equal(0n);
 
       await submission.write.approveSubmission([0n], {
-        account: admin.account,
+        account: admin.account, // MUST be VERIFIER
       });
 
       const claimable = await rewardManager.read.getBalance([
@@ -139,7 +147,7 @@ describe("Submission", function () {
       expect(claimable).to.equal(parseEther("10"));
     });
 
-    it("Should prevent non-admin from approving", async function () {
+    it("Should prevent non-verifier from approving", async function () {
       const { submission, user } = await loadFixture(deployFixture);
 
       await submission.write.createSubmission(buildArgs(), {
@@ -164,7 +172,7 @@ describe("Submission", function () {
       });
 
       await submission.write.approveSubmission([0n], {
-        account: admin.account,
+        account: admin.account, // VERIFIER
       });
 
       const amount = await rewardManager.read.getBalance([
@@ -195,7 +203,7 @@ describe("Submission", function () {
       });
 
       await submission.write.rejectSubmission([0n], {
-        account: admin.account,
+        account: admin.account, // VERIFIER
       });
 
       const claimable = await rewardManager.read.getBalance([
